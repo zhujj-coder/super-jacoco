@@ -1,5 +1,6 @@
 package com.xiaoju.basetech.util;
 
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,6 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @author: copy from com.didichuxing.chefuqa.common.util;
  * @time: 2019/12/24 9:11 PM
  */
+@Slf4j
 public class CmdExecutor {
 
     private static final Logger LOG = LoggerFactory.getLogger(CmdExecutor.class);
@@ -27,6 +29,7 @@ public class CmdExecutor {
             new ArrayBlockingQueue<>(1), r -> new Thread(r, "CmdThread-" + counter.getAndIncrement()));
 
     public static int executeCmd(String[] commands, Long timeout) throws Exception {
+        log.info("commands:[{}]",commands);
         StringBuffer ret = new StringBuffer();
         if (commands == null || commands.length == 0) {
             throw new IllegalArgumentException();

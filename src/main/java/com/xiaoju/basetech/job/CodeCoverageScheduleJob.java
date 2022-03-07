@@ -15,7 +15,9 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -48,27 +50,27 @@ public class CodeCoverageScheduleJob {
      * <p>
      * 查询状态是Constants.JobStatus.INITIAL的任务
      */
-    @Scheduled(fixedDelay = 10_000L, initialDelay = 10_000L)
-    public void codeCloneJob() {
-        // 1. 查询需要diff的数据
-        List<CoverageReportEntity> resList = coverageReportDao.queryCoverByStatus(Constants.JobStatus.INITIAL.val(),
-                Constants.CoverageFrom.UNIT.val(), 1);
-        log.info("查询需要diff的数据{}条", resList.size());
-        resList.forEach(o -> {
-            try {
-                int num = coverageReportDao.casUpdateByStatus(Constants.JobStatus.INITIAL.val(),
-                        Constants.JobStatus.WAITING.val(), o.getUuid());
-                if (num > 0) {
-                    executor.execute(() -> codeCovService.calculateUnitCover(o));
-                } else {
-                    log.info("others execute task :{}", o.getUuid());
-                }
-            } catch (Exception e) {
-                coverageReportDao.casUpdateByStatus(Constants.JobStatus.WAITING.val(),
-                        Constants.JobStatus.INITIAL.val(), o.getUuid());
-            }
-        });
-    }
+//    @Scheduled(fixedDelay = 10_000L, initialDelay = 10_000L)
+//    public void codeCloneJob() {
+//        // 1. 查询需要diff的数据
+//        List<CoverageReportEntity> resList = coverageReportDao.queryCoverByStatus(Constants.JobStatus.INITIAL.val(),
+//                Constants.CoverageFrom.UNIT.val(), 1);
+//        log.info("查询需要diff的数据{}条", resList.size());
+//        resList.forEach(o -> {
+//            try {
+//                int num = coverageReportDao.casUpdateByStatus(Constants.JobStatus.INITIAL.val(),
+//                        Constants.JobStatus.WAITING.val(), o.getUuid());
+//                if (num > 0) {
+//                    executor.execute(() -> codeCovService.calculateUnitCover(o));
+//                } else {
+//                    log.info("others execute task :{}", o.getUuid());
+//                }
+//            } catch (Exception e) {
+//                coverageReportDao.casUpdateByStatus(Constants.JobStatus.WAITING.val(),
+//                        Constants.JobStatus.INITIAL.val(), o.getUuid());
+//            }
+//        });
+//    }
 
 
     /**

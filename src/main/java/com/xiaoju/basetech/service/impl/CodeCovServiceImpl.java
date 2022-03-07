@@ -1,6 +1,8 @@
 package com.xiaoju.basetech.service.impl;
 
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 import com.google.common.base.Preconditions;
 import com.xiaoju.basetech.dao.CoverageReportDao;
 import com.xiaoju.basetech.dao.DeployInfoDao;
@@ -16,15 +18,15 @@ import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.xiaoju.basetech.util.Constants.*;
 
@@ -283,6 +285,7 @@ public class CodeCovServiceImpl implements CodeCovService {
             coverageReport.setGitUrl(envCoverRequest.getGitUrl());
             coverageReport.setNowVersion(envCoverRequest.getNowVersion());
             coverageReport.setType(envCoverRequest.getType());
+            coverageReport.setToMergeId(envCoverRequest.getToMergeId());
 
             if (!StringUtils.isEmpty(envCoverRequest.getBaseVersion())) {
                 coverageReport.setBaseVersion(envCoverRequest.getBaseVersion());
@@ -302,7 +305,7 @@ public class CodeCovServiceImpl implements CodeCovService {
 
             coverageReport.setRequestStatus(Constants.JobStatus.WAITING.val());
             coverageReportDao.insertCoverageReportById(coverageReport);
-            deployInfoDao.insertDeployId(envCoverRequest.getUuid(), envCoverRequest.getAddress(), envCoverRequest.getPort());
+            deployInfoDao.insertDeployId(envCoverRequest.getUuid(), JSON.toJSONString(envCoverRequest.getAddress()), envCoverRequest.getPort());
             new Thread(() -> {
                 cloneAndCompileCode(coverageReport);
                 if (coverageReport.getRequestStatus() != Constants.JobStatus.COMPILE_DONE.val()) {
@@ -332,6 +335,7 @@ public class CodeCovServiceImpl implements CodeCovService {
      */
     @Override
     public void calculateEnvCov(CoverageReportEntity coverageReport) {
+//        TODO 分布式锁
         String logFile = coverageReport.getLogFile().replace(LocalIpUtils.getTomcatBaseUrl() + "logs/", LOG_PATH);
         String uuid = coverageReport.getUuid();
         DeployInfoEntity deployInfoEntity = deployInfoDao.queryDeployId(uuid);
@@ -341,14 +345,63 @@ public class CodeCovServiceImpl implements CodeCovService {
         }
 
         try {
-            int exitCode = CmdExecutor.executeCmd(new String[]{"cd " + coverageReport.getNowLocalPath() + "&&java -jar " +
-                    JACOCO_PATH + " dump --address " + deployInfoEntity.getAddress() + " --port " +
-                    deployInfoEntity.getPort() + " --destfile ./jacoco.exec"}, CMD_TIMEOUT);
-
-            if (exitCode == 0) {
+            /*
+            * 单台机器：直接dump
+            * 分布式多台机器：
+            * 分别dump到ip下，再merge到一起
+            *
+            * */
+            List<String> addressList = JSONObject.parseObject(deployInfoEntity.getAddress(),List.class);
+            AtomicInteger exitCode = new AtomicInteger();
+            if(addressList.size()==1){
+                exitCode.set(CmdExecutor.executeCmd(new String[]{"cd " + coverageReport.getNowLocalPath() + "&&java -jar " +
+                        JACOCO_PATH + " dump --address " + addressList.get(0) + " --port " +
+                        deployInfoEntity.getPort() + " --destfile ./jacoco.exec"}, CMD_TIMEOUT));
+            }else{
+                ArrayList mergeFileList = new ArrayList();
+                addressList.forEach(address ->{
+                    try {
+                        exitCode.addAndGet(CmdExecutor.executeCmd(new String[]{"cd " + coverageReport.getNowLocalPath() + "&&java -jar " +
+                                JACOCO_PATH + " dump --address " + address + " --port " +
+                                deployInfoEntity.getPort() + " --destfile ./"+address+"/jacoco.exec"}, CMD_TIMEOUT));
+                        mergeFileList.add(coverageReport.getNowLocalPath()+"/"+address+"/jacoco.exec");
+                    } catch (Exception e) {
+                       throw new RuntimeException("dump服务器exec文件异常，address"+address);
+                    }
+                });
+                String newFile = coverageReport.getNowLocalPath() + "/jacoco.exec";
+                mergeExec(mergeFileList,newFile);
+            }
+            if (exitCode.get() == 0) {
+                String filePath = coverageReport.getNowLocalPath() + "/jacoco.exec";
+                /**
+                 * 1. 遍历查询需要merge的uuid
+                 * 2.1 存在 ，merge jacoco.exec文件
+                 * 2.2 不存在，跳过
+                 */
+                if(!CollectionUtils.isEmpty(coverageReport.getToMergeId())){
+                    List<String> list = new ArrayList<>();
+                    list.add(filePath);
+                    String newFilePath = filePath.replace("jacoco.exec", "jacocoMerge.exec");
+                    coverageReport.getToMergeId().forEach(uuidMerge ->{
+                        CoverageReportEntity coverageReportEntity = coverageReportDao.queryCoverageReportByUuid(uuidMerge);
+                        if(coverageReportEntity!=null){
+                            log.info("历史数据->[{}]",coverageReportEntity);
+                            String lastNewLocalPath = coverageReportEntity.getNowLocalPath();
+                            list.add(lastNewLocalPath+"/jacoco.exec");
+                        }
+                    });
+                    mergeExec(list,newFilePath);
+//                        1.删除filePath 2.newFilePath 重命名 filePath
+                    File file =new File(filePath);
+                    file.delete();
+                    File fileNew = new File(newFilePath);
+                    fileNew.renameTo(file);
+                }
+//              清除历史报告重新生成报告
                 CmdExecutor.executeCmd(new String[]{"rm -rf " + REPORT_PATH + coverageReport.getUuid()}, CMD_TIMEOUT);
                 String[] moduleList = deployInfoEntity.getChildModules().split(",");
-                StringBuilder builder = new StringBuilder("java -jar " + JACOCO_PATH + " report " + deployInfoEntity.getCodePath() + "/jacoco.exec ");
+                StringBuilder builder = new StringBuilder("java -jar " + JACOCO_PATH + " report " + filePath+" ");
                 // 单模块的时候没有moduleList
                 if (moduleList.length == 0) {
                     builder.append("--sourcefiles ./src/main/java/ ");
@@ -625,7 +678,7 @@ public class CodeCovServiceImpl implements CodeCovService {
             log.error("ExecFiles 合并失败 errorMessege is {}", e.fillInStackTrace());
         }
         try {
-            execFileLoader.save(new File(NewFileName), false);
+            execFileLoader.save(new File(NewFileName), true);
         } catch (Exception e) {
             log.error("ExecFiles 保存失败 errorMessege is {}", e.fillInStackTrace());
         }

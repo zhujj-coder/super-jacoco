@@ -3,6 +3,7 @@ package com.xiaoju.basetech.entity;
 import lombok.Data;
 
 import java.util.Date;
+import java.util.List;
 
 /**
  * @description:
@@ -38,5 +39,7 @@ public class CoverageReportEntity {
     private String reportFile;
     private Integer from;
     private String logFile = "";
+//    需要merge的uuid
+    private List<String> toMergeId;
     
 }
