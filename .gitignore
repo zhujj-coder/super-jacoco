@@ -1,4 +1,6 @@
 /target/
+/jacoco/
+/log/
 !.mvn/wrapper/maven-wrapper.jar
 
 ### STS ###
@@ -15,6 +17,7 @@
 *.iws
 *.iml
 *.ipr
+*.exec
 
 ### NetBeans ###
 /nbproject/private/
