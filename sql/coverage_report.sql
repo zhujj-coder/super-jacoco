@@ -26,7 +26,7 @@ CREATE TABLE `diff_coverage_report` (
 CREATE TABLE `diff_deploy_info` (
   `id` int(10) NOT NULL AUTO_INCREMENT,
   `job_record_uuid` varchar(80) NOT NULL COMMENT '请求唯一标识码',
-  `address` varchar(15) NOT NULL COMMENT 'HOST',
+  `address` varchar(150) NOT NULL COMMENT 'HOST',
   `port` int(10) NOT NULL COMMENT '端口',
   `code_path` varchar(1000) NOT NULL DEFAULT '' COMMENT 'nowVersion代码目录',
   `child_modules` varchar(1000) NOT NULL DEFAULT '' COMMENT '项目子模块名称',
