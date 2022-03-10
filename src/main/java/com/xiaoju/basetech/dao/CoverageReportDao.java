@@ -50,4 +50,6 @@ public interface CoverageReportDao {
      * @return int
      */
     int casUpdateStatusById(Integer id, Integer requestStatus, Integer expectedStatus);
+
+    List<CoverageReportEntity> queryCoverageByCommitIdList(List<String> commitIdList);
 }
