@@ -318,6 +318,8 @@ public class CodeCovServiceImpl implements CodeCovService {
                         log.info("{}计算覆盖率具体步骤...计算增量代码失败，uuid={}", Thread.currentThread().getName(), coverageReport.getUuid());
                         return;
                     }
+//                    计算增量commitId列表
+//                    和已部署的commitID取交集，放入到toMergeId
                 }
                 calculateEnvCov(coverageReport);
             }).start();
@@ -374,30 +376,12 @@ public class CodeCovServiceImpl implements CodeCovService {
             }
             if (exitCode.get() == 0) {
                 String filePath = coverageReport.getNowLocalPath() + "/jacoco.exec";
-                /**
-                 * 1. 遍历查询需要merge的uuid
-                 * 2.1 存在 ，merge jacoco.exec文件
-                 * 2.2 不存在，跳过
-                 */
-                if(!CollectionUtils.isEmpty(coverageReport.getToMergeId())){
-                    List<String> list = new ArrayList<>();
-                    list.add(filePath);
-                    String newFilePath = filePath.replace("jacoco.exec", "jacocoMerge.exec");
-                    coverageReport.getToMergeId().forEach(uuidMerge ->{
-                        CoverageReportEntity coverageReportEntity = coverageReportDao.queryCoverageReportByUuid(uuidMerge);
-                        if(coverageReportEntity!=null){
-                            log.info("历史数据->[{}]",coverageReportEntity);
-                            String lastNewLocalPath = coverageReportEntity.getNowLocalPath();
-                            list.add(lastNewLocalPath+"/jacoco.exec");
-                        }
-                    });
-                    mergeExec(list,newFilePath);
-//                        1.删除filePath 2.newFilePath 重命名 filePath
-                    File file =new File(filePath);
-                    file.delete();
-                    File fileNew = new File(newFilePath);
-                    fileNew.renameTo(file);
-                }
+//                /**
+//                 * 1.取commitID交集（两个commID之前的全部commitID列表和数据库成功的commitID列表）
+//                 * 2.1 存在 ，merge jacoco.exec文件
+//                 * 2.2 不存在，跳过
+//                 */
+//                mergeHistory(coverageReport, filePath);
 //              清除历史报告重新生成报告
                 CmdExecutor.executeCmd(new String[]{"rm -rf " + REPORT_PATH + coverageReport.getUuid()}, CMD_TIMEOUT);
                 String[] moduleList = deployInfoEntity.getChildModules().split(",");
@@ -510,6 +494,27 @@ public class CodeCovServiceImpl implements CodeCovService {
             log.error("uuid={}", coverageReport.getUuid(), coverageReport.getErrMsg());
         } finally {
             coverageReportDao.updateCoverageReportByReport(coverageReport);
+        }
+    }
+
+    private void mergeHistory(CoverageReportEntity coverageReport, String filePath) {
+        List<String> commitIdList = coverageReport.getToMergeId();
+        List<CoverageReportEntity> coverageReportEntityList = coverageReportDao.queryCoverageByCommitIdList(commitIdList);
+        if(!CollectionUtils.isEmpty(coverageReportEntityList)){
+            List<String> list = new ArrayList<>();
+            list.add(filePath);
+            String newFilePath = filePath.replace("jacoco.exec", "jacocoMerge.exec");
+            coverageReportEntityList.forEach(coverageReportEntity ->{
+                log.info("历史数据->[{}]",coverageReportEntity);
+                String lastNewLocalPath = coverageReportEntity.getNowLocalPath();
+                list.add(lastNewLocalPath+"/jacoco.exec");
+            });
+            mergeExec(list,newFilePath);
+//                        1.删除filePath 2.newFilePath 重命名 filePath
+            File file =new File(filePath);
+            file.delete();
+            File fileNew = new File(newFilePath);
+            fileNew.renameTo(file);
         }
     }
 
